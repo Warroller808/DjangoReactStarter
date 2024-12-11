@@ -1,0 +1,141 @@
+services:
+  backend:
+    env_file:
+      - .env
+    build:
+      context: ./backend
+    environment:
+      - DJANGO_SETTINGS_MODULE=backend.settings.prod
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - EMAIL_HOST_USER=${EMAIL_HOST_USER}
+      - EMAIL_HOST_PASSWORD=${EMAIL_HOST_PASSWORD}
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - AWS_ACCESS_KEY_ID = ${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY = ${AWS_SECRET_ACCESS_KEY}
+      - AWS_STORAGE_BUCKET_NAME = ${AWS_STORAGE_BUCKET_NAME}
+      - AWS_BACKUP_BUCKET_NAME = ${AWS_BACKUP_BUCKET_NAME}
+    labels:
+      - traefik.enable=true
+      # Http route
+      - traefik.http.routers.backend-http.rule=Host(`api.domaine.com`)
+      - traefik.http.routers.backend-http.entrypoints=web
+      - traefik.http.routers.backend-http.middlewares=redirect-to-https
+      # Redirect middleware
+      - traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
+      - traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true
+      # Https route
+      - traefik.http.routers.backend.rule=Host(`api.domaine.com`)
+      - traefik.http.routers.backend.entrypoints=websecure
+      - traefik.http.routers.backend.tls.certresolver=myresolver
+      - traefik.http.services.backend.loadbalancer.server.port=8000
+    command: ["gunicorn", "--workers=3", "--worker-class=gevent", "--timeout=120", "--bind", "0.0.0.0:8000", "backend.wsgi:application"]
+    volumes:
+      - ./backend:/app
+      - ./backups:/backups
+    depends_on:
+      - db
+    networks:
+      - traefik-public
+    restart: always
+
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      - REACT_APP_API_BASE_URL=https://api.fret-a-fret.com/api/
+    labels:
+      - traefik.enable=true
+      # Http route
+      - traefik.http.routers.frontend-http.rule=Host(`app.domaine.com`)
+      - traefik.http.routers.frontend-http.entrypoints=web
+      - traefik.http.routers.frontend-http.middlewares=redirect-to-https
+      # Redirect middleware
+      - traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
+      - traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true
+      # Https route
+      - traefik.http.routers.frontend.rule=Host(`app.domaine.com`)
+      - traefik.http.routers.frontend.entrypoints=websecure
+      - traefik.http.routers.frontend.tls.certresolver=myresolver
+      - traefik.http.services.frontend.loadbalancer.server.port=3000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/frontend
+    depends_on:
+      - backend
+    networks:
+      - traefik-public
+    restart: always
+
+  rabbitmq:
+    env_file:
+      - .env
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    expose:
+      - "5672"
+    environment:
+      RABBITMQ_DEFAULT_VHOST: "/"
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    networks:
+      - traefik-public
+    restart: always
+
+  celery:
+    env_file:
+      - .env
+    build:
+      context: ./backend
+    command: celery -A backend worker -l info
+    volumes:
+      - ./backend:/app
+      - ./backups:/backups
+    depends_on:
+      - backend
+      - rabbitmq
+      - db
+    networks:
+      - traefik-public
+    restart: always
+
+  celery-beat:
+    env_file:
+      - .env
+    build:
+      context: ./backend
+    command: celery -A backend beat -l info
+    volumes:
+      - ./backend:/app
+      - ./backups:/backups
+    depends_on:
+      - backend
+      - rabbitmq
+      - db
+    networks:
+      - traefik-public
+    restart: always
+
+  db:
+    env_file:
+      - .env
+    image: postgres:15
+    volumes:
+      - ./backups:/backups
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    networks:
+      - traefik-public
+    restart: always
+
+networks:
+  traefik-public:
+    external: true
+
+volumes:
+  postgres_data:
