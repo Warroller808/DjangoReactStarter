@@ -1,4 +1,3 @@
-from django.shortcuts import render
 from rest_framework import viewsets
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -10,6 +9,7 @@ from .serializers import CustomUserSerializer
 
 
 class CustomUserViewSet(viewsets.ModelViewSet):
+    # API endpoint that allows users to be viewed or edited
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -18,6 +18,7 @@ class CustomUserViewSet(viewsets.ModelViewSet):
 
 
 class CurrentUserView(APIView):
+    # API endpoint that allows current user to be viewed
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
